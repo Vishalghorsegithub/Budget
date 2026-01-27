@@ -1,80 +1,89 @@
 import React, { useState, useMemo } from "react";
 
-function TableDisplay({ columns = [], data = [], pageSize = 5 }) {
-    const [currentPage, setCurrentPage] = useState(1);
+function TableDisplay({ columns = [], data = [], pageSize = 10 }) {
+    const [page, setPage] = useState(1);
 
-    // 1. Column visibility control
-    const visibleColumns = useMemo(
-        () => columns.filter(col => col.isdisplay !== false),
-        [columns]
-    );
-
+    const visibleCols = useMemo(() => columns.filter(c => c.isdisplay !== false), [columns]);
     const totalPages = Math.ceil(data.length / pageSize);
 
     const paginatedData = useMemo(() => {
-        const start = (currentPage - 1) * pageSize;
+        const start = (page - 1) * pageSize;
         return data.slice(start, start + pageSize);
-    }, [data, currentPage, pageSize]);
+    }, [data, page, pageSize]);
 
-    // 2. Cell Renderer (Brain of the table)
-    const renderCell = (row, col, rowIndex) => {
-        const value = row?.[col.accessor];
-
-        // S No.
-        if (col.header === "S No.") {
-            return (currentPage - 1) * pageSize + rowIndex + 1;
+    const handleAction = (col, row) => {
+        if (col.clickFunction && typeof col.clickFunction === "function") {
+            const params = col.clickFunctionParams
+                ? col.clickFunctionParams.map(key => row[key])
+                : [row];
+            col.clickFunction(...params);
         }
+    };
+
+    const renderCell = (row, col, rowIndex) => {
+        const value = row[col.accessor];
+
+        if (col.header === "S No.") return (page - 1) * pageSize + rowIndex + 1;
+        if (col.render) return col.render(value, row);
 
         switch (col.type) {
             case "Date":
-                if (!value) return <span className="text-gray-300">N/A</span>;
-                return new Date(value).toLocaleDateString(col.format || "en-IN");
+                return value ? new Date(value).toLocaleDateString(col.format || "en-IN") : "-";
 
             case "Button":
-                const isActive = Boolean(value);
                 return (
-                    <span
-                        className={`px-3 py-1 rounded-full text-[11px] font-semibold uppercase
-              ${isActive
-                                ? "bg-green-100 text-green-700"
-                                : "bg-red-100 text-red-700"
-                            }`}
+                    <button
+                        onClick={(e) => { e.stopPropagation(); handleAction(col, row); }}
+                        className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase transition-all active:scale-95 shadow-sm
+                        ${value ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}
                     >
-                        {isActive ? "Active" : "Inactive"}
-                    </span>
+                        {value ? "Active" : "Inactive"}
+                    </button>
                 );
 
-            case "normal":
+            // --- ADDED THIS CASE FOR ACTION BUTTONS ---
+            case "Actions":
+                return (
+                    <div className="flex justify-center gap-3">
+                        {col.actions?.map((action, i) => (
+                            <button
+                                key={i}
+                                onClick={(e) => { e.stopPropagation(); action.fn(row); }}
+                                className={`${action.color} hover:scale-110 transition-transform`}
+                                title={action.label}
+                            >
+                                {action.icon}
+                            </button>
+                        ))}
+                    </div>
+                );
+
             default:
                 return value ?? <span className="text-gray-300">N/A</span>;
         }
     };
 
     return (
-        <div className="w-full overflow-hidden rounded-xl border border-gray-200 shadow-sm bg-white">
-            <div className="">
-                <table className="display-table  min-w-full border-separate border-spacing-0">
-                    <thead className="bg-gray-50">
+        <div className="rounded-xl border-t border-l border-gray-200 shadow-lg overflow-hidden bg-white">
+            <div className="overflow-x-auto max-h-[85vh]">
+                <table className="min-w-full border-separate border-spacing-0">
+                    <thead className="sticky top-0 z-20 bg-[#EDF6F9] text-[#1F1E1E]">
                         <tr>
-                            {visibleColumns.map((col, i) => (
-                                <th
-                                    key={i}
-                                    className={`px-6 py-4 text-xs font-bold uppercase tracking-wider
-                    text-gray-500 border-b ${col.className || ""}`}
-                                >
+                            {visibleCols.map((col, i) => (
+                                <th key={i} className={`px-6 py-4 text-xs font-bold uppercase tracking-widest border-r border-b border-gray-200  ${i % 2 == 0 ? 'bg-blue-50' : ''}   ${col.className}`}>
                                     {col.header}
                                 </th>
                             ))}
                         </tr>
                     </thead>
-
-                    <tbody className="divide-y divide-gray-100">
+                    <tbody>
                         {paginatedData.map((row, rowIndex) => (
-                            <tr key={rowIndex} className="hover:bg-gray-50 transition">
-                                {visibleColumns.map((col, colIndex) => (
+                            <tr key={rowIndex} className="hover:bg-blue-50/40 transition-colors group ${i % 2 == 0 ? 'bg-blue-50' : ''}">
+                                {visibleCols.map((col, ci) => (
                                     <td
-                                        key={colIndex}
-                                        className={`px-6 py-4 text-sm ${col.className || ""}`}
+                                        key={ci}
+                                        className={`px-6 py-4 text-sm text-gray-600 border-r border-b border-gray-100 ${col.className}`}
+                                        onClick={() => col.type !== "Button" && col.type !== "Actions" && handleAction(col, row)}
                                     >
                                         {renderCell(row, col, rowIndex)}
                                     </td>
@@ -85,28 +94,12 @@ function TableDisplay({ columns = [], data = [], pageSize = 5 }) {
                 </table>
             </div>
 
-            {/* Pagination */}
-            <div className="p-4 flex justify-between items-center border-t bg-gray-50">
-                <span className="text-xs text-gray-500">
-                    Page {currentPage} of {totalPages}
-                </span>
-
+            {/* Pagination UI */}
+            <div className="p-4 flex justify-between items-center bg-gray-50 border-r border-b border-l border-gray-200 rounded-b-xl">
+                <span className="text-xs text-gray-500 font-medium">Page {page} of {totalPages}</span>
                 <div className="flex gap-2">
-                    <button
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="px-4 py-1 text-xs border rounded hover:bg-white disabled:opacity-50"
-                    >
-                        Prev
-                    </button>
-
-                    <button
-                        onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                        disabled={currentPage === totalPages}
-                        className="px-4 py-1 text-xs border rounded hover:bg-white disabled:opacity-50"
-                    >
-                        Next
-                    </button>
+                    <button disabled={page === 1} onClick={() => setPage(p => p - 1)} className="px-3 py-1 border rounded bg-white text-xs disabled:opacity-50 hover:bg-gray-100">Prev</button>
+                    <button disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="px-3 py-1 border rounded bg-white text-xs disabled:opacity-50 hover:bg-gray-100">Next</button>
                 </div>
             </div>
         </div>
